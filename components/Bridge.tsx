@@ -26,6 +26,8 @@ const Bridge: React.FC = () => {
   const [brupxBalance, setBrupxBalance] = useState('0');
   const [networkName, setNetworkName] = useState('');
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+  const [account, setAccount] = useState('');
   const toast = useToast();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { colorMode, toggleColorMode } = useColorMode();
@@ -35,31 +37,88 @@ const Bridge: React.FC = () => {
   const borderColor = useColorModeValue('gray.200', 'gray.600');
 
   useEffect(() => {
-    const fetchBalancesAndNetwork = async () => {
-      try {
-        const provider = new ethers.providers.Web3Provider(window.ethereum as any);
-        const signer = provider.getSigner();
-        const address = await signer.getAddress();
-
-        const rupxBalance = await provider.getBalance(address);
-        setRupxBalance(ethers.utils.formatEther(rupxBalance));
-
-        const brupxToken = new ethers.Contract(BRUPX_TOKEN_ADDRESS, erc20ABI, provider);
-        const brupxBalance = await brupxToken.balanceOf(address);
-        setBrupxBalance(ethers.utils.formatEther(brupxBalance));
-
-        const network = await provider.getNetwork();
-        setNetworkName(network.name);
-      } catch (error) {
-        console.error("Error fetching balances and network:", error);
-        setNetworkName('');
-      }
-    };
-
-    fetchBalancesAndNetwork();
-    const interval = setInterval(fetchBalancesAndNetwork, 30000);
-    return () => clearInterval(interval);
+    checkConnection();
   }, []);
+
+  const checkConnection = async () => {
+    if (typeof window.ethereum !== 'undefined') {
+      try {
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts.length > 0) {
+          setIsConnected(true);
+          setAccount(accounts[0]);
+          fetchBalancesAndNetwork();
+        } else {
+          setIsConnected(false);
+          setAccount('');
+        }
+      } catch (error) {
+        console.error("Failed to check connection:", error);
+      }
+    }
+  };
+
+  const connectWallet = async () => {
+    if (typeof window.ethereum !== 'undefined') {
+      try {
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts.length > 0) {
+          setIsConnected(true);
+          setAccount(accounts[0]);
+          fetchBalancesAndNetwork();
+        }
+      } catch (error) {
+        console.error("Failed to connect:", error);
+      }
+    } else {
+      toast({
+        title: "MetaMask not detected",
+        description: "Please install MetaMask to use this feature.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  };
+
+  const disconnectWallet = () => {
+    setIsConnected(false);
+    setAccount('');
+    setRupxBalance('0');
+    setBrupxBalance('0');
+    setNetworkName('');
+  };
+
+  const fetchBalancesAndNetwork = async () => {
+    if (!isConnected) return;
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      const address = await signer.getAddress();
+
+      const rupxBalance = await provider.getBalance(address);
+      setRupxBalance(ethers.utils.formatEther(rupxBalance));
+
+      const brupxToken = new ethers.Contract(BRUPX_TOKEN_ADDRESS, erc20ABI, provider);
+      const brupxBalance = await brupxToken.balanceOf(address);
+      setBrupxBalance(ethers.utils.formatEther(brupxBalance));
+
+      const network = await provider.getNetwork();
+      setNetworkName(network.name);
+    } catch (error) {
+      console.error("Error fetching balances and network:", error);
+      setNetworkName('');
+    }
+  };
+
+  useEffect(() => {
+    if (isConnected) {
+      fetchBalancesAndNetwork();
+      const interval = setInterval(fetchBalancesAndNetwork, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [isConnected]);
 
   const handleSwap = () => {
     setFromToken(toToken);
@@ -70,7 +129,7 @@ const Bridge: React.FC = () => {
     onClose();
     setLoading(true);
     try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum as any);
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
       await provider.send("eth_requestAccounts", []);
       const signer = provider.getSigner();
 
@@ -123,11 +182,11 @@ const Bridge: React.FC = () => {
             xLink Bridge
           </Heading>
           <HStack>
-            <Tooltip label={networkName ? `Connected to ${networkName}` : 'Not connected'}>
-              <Badge colorScheme={networkName === 'rupaya-testnet' || networkName === 'bsc-testnet' ? 'green' : 'red'}>
-                {networkName || 'NOT CONNECTED'}
-              </Badge>
-            </Tooltip>
+            {isConnected ? (
+              <Button onClick={disconnectWallet}>Disconnect {account.slice(0, 6)}...{account.slice(-4)}</Button>
+            ) : (
+              <Button onClick={connectWallet}>Connect Wallet</Button>
+            )}
             <IconButton
               aria-label="Toggle color mode"
               icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
@@ -148,7 +207,7 @@ const Bridge: React.FC = () => {
               </Box>
               <IconButton
                 aria-label="Swap tokens"
-                icon={<ArrowForwardIcon />}
+                icon={<ArrowForwardIcon color={textColor} />}
                 onClick={handleSwap}
                 variant="ghost"
                 _hover={{ bg: 'transparent', transform: 'rotate(180deg)' }}
