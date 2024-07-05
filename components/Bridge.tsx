@@ -1,69 +1,108 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { ethers } from 'ethers';
+import React, { useState, useEffect, useCallback } from "react";
+import { ethers } from "ethers";
 import {
-  Box, VStack, HStack, Text, Input, Button, Select, useToast,
-  Heading, Container, Divider, Stat, StatLabel, StatNumber,
-  StatHelpText, StatArrow, Table, Thead, Tbody, Tr, Th, Td,
-  useDisclosure, Modal, ModalOverlay, ModalContent, ModalHeader,
-  ModalFooter, ModalBody, ModalCloseButton, Badge, Tooltip,
-  useColorMode, IconButton, Flex, Skeleton, useColorModeValue
-} from '@chakra-ui/react';
-import { ArrowForwardIcon, SunIcon, MoonIcon } from '@chakra-ui/icons';
-import { RUPX_LOCKER_ADDRESS, RUPX_BRIDGE_ADDRESS, BRUPX_TOKEN_ADDRESS } from '../config';
+  Box,
+  VStack,
+  HStack,
+  Text,
+  Input,
+  Button,
+  Select,
+  useToast,
+  Heading,
+  Container,
+  Divider,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  StatArrow,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalFooter,
+  ModalBody,
+  ModalCloseButton,
+  useColorMode,
+  IconButton,
+  Flex,
+  Skeleton,
+  useColorModeValue,
+} from "@chakra-ui/react";
+import { ArrowForwardIcon, SunIcon, MoonIcon } from "@chakra-ui/icons";
 
-const rupxLockerABI = ["function lockRUPX(bytes32 _transactionId) payable"];
-const rupxBridgeABI = ["function burnBRUPX(uint256 _amount, bytes32 _transactionId)"];
-const erc20ABI = ["function balanceOf(address owner) view returns (uint256)"];
+const RUPAYA_BRIDGE_ADDRESS = "0x8d89eB69A35C4573EeEC3D6a24Ff678858C24d41";
+const BINANCE_BRIDGE_ADDRESS = "0xD8889654A3DF5E154247AaE60FE0fE8B089482D6";
+
+const rupayaBridgeABI = [
+  "function lockTokens() public payable",
+  "function unlockTokens(address payable user, uint256 amount) external",
+  "function lockedTokens(address) public view returns (uint256)",
+  "event TokensLocked(address indexed user, uint256 amount, uint256 timestamp)",
+  "event TokensUnlocked(address indexed user, uint256 amount, uint256 timestamp)",
+];
+
+const binanceBridgeABI = [
+  "function mintTokens(address user, uint256 amount) external",
+  "function burnTokens(address user, uint256 amount) external",
+  "function balanceOf(address account) public view returns (uint256)",
+  "event TokensMinted(address indexed user, uint256 amount, uint256 timestamp)",
+  "event TokensBurned(address indexed user, uint256 amount, uint256 timestamp)",
+];
 
 const Bridge: React.FC = () => {
-  const [amount, setAmount] = useState('');
-  const [fromToken, setFromToken] = useState('RUPX');
-  const [toToken, setToToken] = useState('BRUPX');
+  const [amount, setAmount] = useState("");
+  const [fromToken, setFromToken] = useState("RUPX");
+  const [toToken, setToToken] = useState("BRUPX");
   const [loading, setLoading] = useState(false);
-  const [rupxBalance, setRupxBalance] = useState('0');
-  const [brupxBalance, setBrupxBalance] = useState('0');
-  const [networkName, setNetworkName] = useState('');
+  const [rupxBalance, setRupxBalance] = useState("0");
+  const [brupxBalance, setBrupxBalance] = useState("0");
+  const [networkName, setNetworkName] = useState("");
   const [transactions, setTransactions] = useState<any[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [account, setAccount] = useState('');
+  const [account, setAccount] = useState("");
   const toast = useToast();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { colorMode, toggleColorMode } = useColorMode();
-  
-  const bgColor = useColorModeValue('white', 'gray.800');
-  const textColor = useColorModeValue('gray.800', 'white');
-  const borderColor = useColorModeValue('gray.200', 'gray.600');
 
-  useEffect(() => {
-    checkConnection();
-  }, []);
+  const bgColor = useColorModeValue("white", "gray.800");
+  const textColor = useColorModeValue("gray.800", "white");
+  const borderColor = useColorModeValue("gray.200", "gray.600");
 
-  const checkConnection = async () => {
-    if (typeof window.ethereum !== 'undefined') {
+  const checkConnection = useCallback(async () => {
+    if (typeof window !== "undefined" && window.ethereum) {
       try {
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length > 0) {
+        const accounts = (await window.ethereum.request({
+          method: "eth_accounts",
+        })) as string[];
+        if (accounts && accounts.length > 0) {
           setIsConnected(true);
           setAccount(accounts[0]);
           fetchBalancesAndNetwork();
-        } else {
-          setIsConnected(false);
-          setAccount('');
         }
       } catch (error) {
         console.error("Failed to check connection:", error);
       }
     }
-  };
+  }, []);
 
   const connectWallet = async () => {
-    if (typeof window.ethereum !== 'undefined') {
+    if (typeof window !== "undefined" && window.ethereum) {
       try {
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length > 0) {
+        const accounts = (await window.ethereum.request({
+          method: "eth_requestAccounts",
+        })) as string[];
+        if (accounts && accounts.length > 0) {
           setIsConnected(true);
           setAccount(accounts[0]);
           fetchBalancesAndNetwork();
@@ -84,75 +123,186 @@ const Bridge: React.FC = () => {
 
   const disconnectWallet = () => {
     setIsConnected(false);
-    setAccount('');
-    setRupxBalance('0');
-    setBrupxBalance('0');
-    setNetworkName('');
+    setAccount("");
+    setRupxBalance("0");
+    setBrupxBalance("0");
+    setNetworkName("");
   };
 
-  const fetchBalancesAndNetwork = async () => {
+  const fetchBalancesAndNetwork = useCallback(async () => {
     if (!isConnected) return;
     try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const provider = new ethers.providers.Web3Provider(
+        window.ethereum as any
+      );
       const signer = provider.getSigner();
       const address = await signer.getAddress();
 
+      const network = await provider.getNetwork();
+      setNetworkName(network.name);
+
+      // Fetch RUPX balance (native token balance)
       const rupxBalance = await provider.getBalance(address);
       setRupxBalance(ethers.utils.formatEther(rupxBalance));
 
-      const brupxToken = new ethers.Contract(BRUPX_TOKEN_ADDRESS, erc20ABI, provider);
-      const brupxBalance = await brupxToken.balanceOf(address);
+      // Fetch BRUPX balance
+      let brupxBalance;
+      if (network.name === "rupaya-testnet") {
+        const rupayaBridge = new ethers.Contract(
+          RUPAYA_BRIDGE_ADDRESS,
+          rupayaBridgeABI,
+          provider
+        );
+        brupxBalance = await rupayaBridge.lockedTokens(address);
+      } else if (network.name === "bsc-testnet") {
+        const binanceBridge = new ethers.Contract(
+          BINANCE_BRIDGE_ADDRESS,
+          binanceBridgeABI,
+          provider
+        );
+        brupxBalance = await binanceBridge.balanceOf(address);
+      } else {
+        brupxBalance = ethers.BigNumber.from(0);
+      }
       setBrupxBalance(ethers.utils.formatEther(brupxBalance));
 
-      const network = await provider.getNetwork();
-      setNetworkName(network.name);
+      console.log(
+        `Network: ${network.name}, RUPX Balance: ${ethers.utils.formatEther(
+          rupxBalance
+        )}, BRUPX Balance: ${ethers.utils.formatEther(brupxBalance)}`
+      );
     } catch (error) {
       console.error("Error fetching balances and network:", error);
-      setNetworkName('');
-    }
-  };
-
-  useEffect(() => {
-    if (isConnected) {
-      fetchBalancesAndNetwork();
-      const interval = setInterval(fetchBalancesAndNetwork, 30000);
-      return () => clearInterval(interval);
+      setNetworkName("");
+      setRupxBalance("0");
+      setBrupxBalance("0");
     }
   }, [isConnected]);
+
+  useEffect(() => {
+    checkConnection();
+  }, [checkConnection]);
+
+  useEffect(() => {
+    if (isConnected && window.ethereum) {
+      fetchBalancesAndNetwork();
+      const interval = setInterval(fetchBalancesAndNetwork, 30000);
+
+      // Listen for network changes
+      const handleNetworkChange = () => {
+        fetchBalancesAndNetwork();
+      };
+      window.ethereum.on("networkChanged", handleNetworkChange);
+
+      return () => {
+        clearInterval(interval);
+        window.ethereum.removeListener("networkChanged", handleNetworkChange);
+      };
+    }
+  }, [isConnected, fetchBalancesAndNetwork]);
 
   const handleSwap = () => {
     setFromToken(toToken);
     setToToken(fromToken);
   };
 
+  const switchNetwork = async (
+    targetNetwork: "rupaya-testnet" | "bsc-testnet"
+  ) => {
+    if (!window.ethereum) return;
+
+    const networkParams = {
+      "rupaya-testnet": {
+        chainId: "0x61", // Replace with actual Rupaya testnet chain ID
+        chainName: "Rupaya Testnet",
+        nativeCurrency: {
+          name: "RUPX",
+          symbol: "RUPX",
+          decimals: 18,
+        },
+        rpcUrls: ["https://testnet-rpc.rupaya.io"], // Replace with actual RPC URL
+        blockExplorerUrls: ["https://testnet-explorer.rupaya.io"], // Replace with actual explorer URL
+      },
+      "bsc-testnet": {
+        chainId: "0x61",
+        chainName: "BSC Testnet",
+        nativeCurrency: {
+          name: "tBNB",
+          symbol: "tBNB",
+          decimals: 18,
+        },
+        rpcUrls: ["https://data-seed-prebsc-1-s1.binance.org:8545/"],
+        blockExplorerUrls: ["https://testnet.bscscan.com"],
+      },
+    };
+
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: networkParams[targetNetwork].chainId }],
+      });
+    } catch (switchError: any) {
+      // This error code indicates that the chain has not been added to MetaMask.
+      if (switchError.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [networkParams[targetNetwork]],
+          });
+        } catch (addError) {
+          console.error("Failed to add network:", addError);
+        }
+      } else {
+        console.error("Failed to switch network:", switchError);
+      }
+    }
+  };
+
   const handleBridge = async () => {
     onClose();
     setLoading(true);
     try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      await provider.send("eth_requestAccounts", []);
-      const signer = provider.getSigner();
+      const targetNetwork =
+        fromToken === "RUPX" ? "rupaya-testnet" : "bsc-testnet";
+      await switchNetwork(targetNetwork);
 
-      const transactionId = ethers.utils.id(Date.now().toString());
+      const provider = new ethers.providers.Web3Provider(
+        window.ethereum as any
+      );
+      const signer = provider.getSigner();
       const amountWei = ethers.utils.parseEther(amount);
 
       let tx;
-      if (fromToken === 'RUPX') {
-        const rupxLocker = new ethers.Contract(RUPX_LOCKER_ADDRESS, rupxLockerABI, signer);
-        tx = await rupxLocker.lockRUPX(transactionId, { value: amountWei });
+      if (fromToken === "RUPX") {
+        const rupayaBridge = new ethers.Contract(
+          RUPAYA_BRIDGE_ADDRESS,
+          rupayaBridgeABI,
+          signer
+        );
+        tx = await rupayaBridge.lockTokens({ value: amountWei });
       } else {
-        const rupxBridge = new ethers.Contract(RUPX_BRIDGE_ADDRESS, rupxBridgeABI, signer);
-        tx = await rupxBridge.burnBRUPX(amountWei, transactionId);
+        const binanceBridge = new ethers.Contract(
+          BINANCE_BRIDGE_ADDRESS,
+          binanceBridgeABI,
+          signer
+        );
+        tx = await binanceBridge.burnTokens(
+          await signer.getAddress(),
+          amountWei
+        );
       }
       await tx.wait();
 
-      setTransactions(prev => [{
-        from: fromToken,
-        to: toToken,
-        amount,
-        hash: tx.hash,
-        timestamp: new Date().toLocaleString()
-      }, ...prev.slice(0, 4)]);
+      setTransactions((prev) => [
+        {
+          from: fromToken,
+          to: toToken,
+          amount,
+          hash: tx.hash,
+          timestamp: new Date().toLocaleString(),
+        },
+        ...prev.slice(0, 4),
+      ]);
 
       toast({
         title: "Bridge Successful",
@@ -161,6 +311,8 @@ const Bridge: React.FC = () => {
         duration: 5000,
         isClosable: true,
       });
+
+      fetchBalancesAndNetwork();
     } catch (error) {
       console.error(error);
       toast({
@@ -178,44 +330,74 @@ const Bridge: React.FC = () => {
     <Container maxW="container.lg" p={8}>
       <VStack spacing={8} align="stretch">
         <Flex justifyContent="space-between" alignItems="center">
-          <Heading as="h1" size="2xl" bgGradient="linear(to-r, #3498db, #2ecc71)" bgClip="text">
+          <Heading
+            as="h1"
+            size="2xl"
+            bgGradient="linear(to-r, #3498db, #2ecc71)"
+            bgClip="text"
+          >
             xLink Bridge
           </Heading>
           <HStack>
             {isConnected ? (
-              <Button onClick={disconnectWallet}>Disconnect {account.slice(0, 6)}...{account.slice(-4)}</Button>
+              <Button onClick={disconnectWallet}>
+                Disconnect {account.slice(0, 6)}...{account.slice(-4)}
+              </Button>
             ) : (
               <Button onClick={connectWallet}>Connect Wallet</Button>
             )}
             <IconButton
               aria-label="Toggle color mode"
-              icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
+              icon={colorMode === "light" ? <MoonIcon /> : <SunIcon />}
               onClick={toggleColorMode}
               variant="ghost"
             />
           </HStack>
         </Flex>
-        <Box bg={bgColor} p={6} borderRadius="xl" boxShadow="xl" borderColor={borderColor} borderWidth={1}>
-          <VStack spacing={6}>
-            <HStack w="full" justifyContent="space-between">
-              <Box w="45%">
-                <Text mb={2} color={textColor}>From</Text>
-                <Select value={fromToken} onChange={(e) => setFromToken(e.target.value)} bg={bgColor} color={textColor}>
+
+        <Box
+          bg={bgColor}
+          p={6}
+          borderRadius="xl"
+          boxShadow="xl"
+          borderColor={borderColor}
+          borderWidth={1}
+        >
+          <VStack spacing={6} align="stretch">
+            <HStack justifyContent="space-between">
+              <Box flex={1}>
+                <Text mb={2} color={textColor}>
+                  From
+                </Text>
+                <Select
+                  value={fromToken}
+                  onChange={(e) => setFromToken(e.target.value)}
+                  bg={bgColor}
+                  color={textColor}
+                >
                   <option value="RUPX">RUPX</option>
                   <option value="BRUPX">BRUPX</option>
                 </Select>
               </Box>
               <IconButton
                 aria-label="Swap tokens"
-                icon={<ArrowForwardIcon color={textColor} />}
+                icon={<ArrowForwardIcon />}
                 onClick={handleSwap}
                 variant="ghost"
-                _hover={{ bg: 'transparent', transform: 'rotate(180deg)' }}
+                alignSelf="flex-end"
+                _hover={{ bg: "transparent", transform: "rotate(180deg)" }}
                 transition="all 0.3s"
               />
-              <Box w="45%">
-                <Text mb={2} color={textColor}>To</Text>
-                <Select value={toToken} onChange={(e) => setToToken(e.target.value)} bg={bgColor} color={textColor}>
+              <Box flex={1}>
+                <Text mb={2} color={textColor}>
+                  To
+                </Text>
+                <Select
+                  value={toToken}
+                  onChange={(e) => setToToken(e.target.value)}
+                  bg={bgColor}
+                  color={textColor}
+                >
                   <option value="BRUPX">BRUPX</option>
                   <option value="RUPX">RUPX</option>
                 </Select>
@@ -230,9 +412,8 @@ const Bridge: React.FC = () => {
               color={textColor}
             />
             <Button
-              colorScheme="blue"
               onClick={onOpen}
-              isFullWidth
+              colorScheme="blue"
               bgGradient="linear(to-r, #3498db, #2ecc71)"
               _hover={{
                 bgGradient: "linear(to-r, #2980b9, #27ae60)",
@@ -242,12 +423,16 @@ const Bridge: React.FC = () => {
             </Button>
           </VStack>
         </Box>
+
         <Divider />
+
         <HStack justifyContent="space-between">
           <Stat>
             <StatLabel color={textColor}>RUPX Balance</StatLabel>
-            <Skeleton isLoaded={rupxBalance !== '0'}>
-              <StatNumber color={textColor}>{parseFloat(rupxBalance).toFixed(4)}</StatNumber>
+            <Skeleton isLoaded={rupxBalance !== "0"}>
+              <StatNumber color={textColor}>
+                {parseFloat(rupxBalance).toFixed(4)}
+              </StatNumber>
             </Skeleton>
             <StatHelpText>
               <StatArrow type="increase" />
@@ -256,8 +441,10 @@ const Bridge: React.FC = () => {
           </Stat>
           <Stat>
             <StatLabel color={textColor}>BRUPX Balance</StatLabel>
-            <Skeleton isLoaded={brupxBalance !== '0'}>
-              <StatNumber color={textColor}>{parseFloat(brupxBalance).toFixed(4)}</StatNumber>
+            <Skeleton isLoaded={brupxBalance !== "0"}>
+              <StatNumber color={textColor}>
+                {parseFloat(brupxBalance).toFixed(4)}
+              </StatNumber>
             </Skeleton>
             <StatHelpText>
               <StatArrow type="increase" />
@@ -265,49 +452,66 @@ const Bridge: React.FC = () => {
             </StatHelpText>
           </Stat>
         </HStack>
-        <Box>
-          <Heading size="md" mb={4} color={textColor}>Recent Transactions</Heading>
-          <Table variant="simple">
-            <Thead>
-              <Tr>
-                <Th color={textColor}>From</Th>
-                <Th color={textColor}>To</Th>
-                <Th color={textColor}>Amount</Th>
-                <Th color={textColor}>Timestamp</Th>
-                <Th color={textColor}>Status</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {transactions.map((tx, index) => (
-                <Tr key={index}>
-                  <Td color={textColor}>{tx.from}</Td>
-                  <Td color={textColor}>{tx.to}</Td>
-                  <Td color={textColor}>{tx.amount}</Td>
-                  <Td color={textColor}>{tx.timestamp}</Td>
-                  <Td>
-                    <Badge colorScheme="green">Success</Badge>
-                  </Td>
+
+        {transactions.length > 0 && (
+          <Box>
+            <Heading size="md" mb={4} color={textColor}>
+              Recent Transactions
+            </Heading>
+            <Table variant="simple">
+              <Thead>
+                <Tr>
+                  <Th color={textColor}>From</Th>
+                  <Th color={textColor}>To</Th>
+                  <Th color={textColor}>Amount</Th>
+                  <Th color={textColor}>Timestamp</Th>
+                  <Th color={textColor}>Status</Th>
                 </Tr>
-              ))}
-            </Tbody>
-          </Table>
-        </Box>
+              </Thead>
+              <Tbody>
+                {transactions.map((tx, index) => (
+                  <Tr key={tx.hash || index}>
+                    <Td color={textColor}>{tx.from}</Td>
+                    <Td color={textColor}>{tx.to}</Td>
+                    <Td color={textColor}>{tx.amount}</Td>
+                    <Td color={textColor}>{tx.timestamp}</Td>
+                    <Td color={textColor}>Success</Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </Box>
+        )}
       </VStack>
 
       <Modal isOpen={isOpen} onClose={onClose}>
         <ModalOverlay />
         <ModalContent bg={bgColor}>
-          <ModalHeader color={textColor}>Confirm Bridge Transaction</ModalHeader>
+          <ModalHeader color={textColor}>
+            Confirm Bridge Transaction
+          </ModalHeader>
           <ModalCloseButton />
           <ModalBody>
-            <Text color={textColor}>Are you sure you want to bridge {amount} {fromToken} to {toToken}?</Text>
-            <Text mt={4} color={textColor}>Please make sure you're connected to the correct network before proceeding.</Text>
+            <Text color={textColor}>
+              Are you sure you want to bridge {amount} {fromToken} to {toToken}?
+            </Text>
+            <Text mt={4} color={textColor}>
+              Please make sure you&apos;re connected to the correct network
+              before proceeding.
+            </Text>
           </ModalBody>
           <ModalFooter>
-            <Button colorScheme="blue" mr={3} onClick={handleBridge} isLoading={loading}>
+            <Button
+              colorScheme="blue"
+              mr={3}
+              onClick={handleBridge}
+              isLoading={loading}
+            >
               Confirm
             </Button>
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
