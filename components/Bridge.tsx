@@ -79,6 +79,64 @@ const Bridge: React.FC = () => {
   const textColor = useColorModeValue("gray.800", "white");
   const borderColor = useColorModeValue("gray.200", "gray.600");
 
+  const networkNames: { [key: number]: string } = {
+    799: "rupaya-testnet",
+    97: "bsc-testnet",
+  };
+
+  const fetchBalancesAndNetwork = useCallback(async () => {
+    if (!isConnected || typeof window === "undefined" || !window.ethereum) return;
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum as any);
+      const signer = provider.getSigner();
+      const address = await signer.getAddress();
+
+      const network = await provider.getNetwork();
+      const name = networkNames[network.chainId] || "unknown";
+      setNetworkName(name);
+      console.log(`Network details: ${JSON.stringify({ ...network, name })}`);
+
+      if (name === "unknown") {
+        console.log("Network is unknown. Cannot fetch balances.");
+        return;
+      }
+
+      if (network.chainId === 97) { // BSC Testnet
+        const binanceBridge = new ethers.Contract(
+          BINANCE_BRIDGE_ADDRESS,
+          binanceBridgeABI,
+          provider
+        );
+        const brupxBalance = await binanceBridge.balanceOf(address);
+        setBrupxBalance(ethers.utils.formatEther(brupxBalance));
+        setRupxBalance("0");
+      } else if (network.chainId === 799) { // Rupaya Testnet
+        const rupxBalance = await provider.getBalance(address);
+        setRupxBalance(ethers.utils.formatEther(rupxBalance));
+        const rupayaBridge = new ethers.Contract(
+          RUPAYA_BRIDGE_ADDRESS,
+          rupayaBridgeABI,
+          provider
+        );
+        const lockedTokens = await rupayaBridge.lockedTokens(address);
+        setBrupxBalance(ethers.utils.formatEther(lockedTokens));
+      } else {
+        console.log("Connected to an unsupported network.");
+        setRupxBalance("0");
+        setBrupxBalance("0");
+      }
+
+      console.log(
+        `Network: ${name}, RUPX Balance: ${ethers.utils.formatEther(rupxBalance)}, BRUPX Balance: ${ethers.utils.formatEther(brupxBalance)}`
+      );
+    } catch (error) {
+      console.error("Error fetching balances and network:", error);
+      setNetworkName("");
+      setRupxBalance("0");
+      setBrupxBalance("0");
+    }
+  }, [isConnected]);
+
   const checkConnection = useCallback(async () => {
     if (typeof window !== "undefined" && window.ethereum) {
       try {
@@ -94,7 +152,7 @@ const Bridge: React.FC = () => {
         console.error("Failed to check connection:", error);
       }
     }
-  }, []);
+  }, [fetchBalancesAndNetwork]);
 
   const connectWallet = async () => {
     if (typeof window !== "undefined" && window.ethereum) {
@@ -129,56 +187,6 @@ const Bridge: React.FC = () => {
     setNetworkName("");
   };
 
-  const fetchBalancesAndNetwork = useCallback(async () => {
-    if (!isConnected) return;
-    try {
-      const provider = new ethers.providers.Web3Provider(
-        window.ethereum as any
-      );
-      const signer = provider.getSigner();
-      const address = await signer.getAddress();
-
-      const network = await provider.getNetwork();
-      setNetworkName(network.name);
-
-      // Fetch RUPX balance (native token balance)
-      const rupxBalance = await provider.getBalance(address);
-      setRupxBalance(ethers.utils.formatEther(rupxBalance));
-
-      // Fetch BRUPX balance
-      let brupxBalance;
-      if (network.name === "rupaya-testnet") {
-        const rupayaBridge = new ethers.Contract(
-          RUPAYA_BRIDGE_ADDRESS,
-          rupayaBridgeABI,
-          provider
-        );
-        brupxBalance = await rupayaBridge.lockedTokens(address);
-      } else if (network.name === "bsc-testnet") {
-        const binanceBridge = new ethers.Contract(
-          BINANCE_BRIDGE_ADDRESS,
-          binanceBridgeABI,
-          provider
-        );
-        brupxBalance = await binanceBridge.balanceOf(address);
-      } else {
-        brupxBalance = ethers.BigNumber.from(0);
-      }
-      setBrupxBalance(ethers.utils.formatEther(brupxBalance));
-
-      console.log(
-        `Network: ${network.name}, RUPX Balance: ${ethers.utils.formatEther(
-          rupxBalance
-        )}, BRUPX Balance: ${ethers.utils.formatEther(brupxBalance)}`
-      );
-    } catch (error) {
-      console.error("Error fetching balances and network:", error);
-      setNetworkName("");
-      setRupxBalance("0");
-      setBrupxBalance("0");
-    }
-  }, [isConnected]);
-
   useEffect(() => {
     checkConnection();
   }, [checkConnection]);
@@ -188,7 +196,6 @@ const Bridge: React.FC = () => {
       fetchBalancesAndNetwork();
       const interval = setInterval(fetchBalancesAndNetwork, 30000);
 
-      // Listen for network changes
       const handleNetworkChange = () => {
         fetchBalancesAndNetwork();
       };
@@ -206,25 +213,23 @@ const Bridge: React.FC = () => {
     setToToken(fromToken);
   };
 
-  const switchNetwork = async (
-    targetNetwork: "rupaya-testnet" | "bsc-testnet"
-  ) => {
-    if (!window.ethereum) return;
+  const switchNetwork = async (targetNetwork: "rupaya-testnet" | "bsc-testnet") => {
+    if (typeof window === "undefined" || !window.ethereum) return;
 
     const networkParams = {
       "rupaya-testnet": {
-        chainId: "0x61", // Replace with actual Rupaya testnet chain ID
+        chainId: "0x31F", // Rupaya Testnet chain ID (799 in decimal)
         chainName: "Rupaya Testnet",
         nativeCurrency: {
           name: "RUPX",
           symbol: "RUPX",
           decimals: 18,
         },
-        rpcUrls: ["https://testnet-rpc.rupaya.io"], // Replace with actual RPC URL
-        blockExplorerUrls: ["https://testnet-explorer.rupaya.io"], // Replace with actual explorer URL
+        rpcUrls: ["https://testnet-rpc.rupaya.io"],
+        blockExplorerUrls: ["https://testnet-explorer.rupaya.io"],
       },
       "bsc-testnet": {
-        chainId: "0x61",
+        chainId: "0x61", // BSC Testnet chain ID
         chainName: "BSC Testnet",
         nativeCurrency: {
           name: "tBNB",
@@ -242,7 +247,6 @@ const Bridge: React.FC = () => {
         params: [{ chainId: networkParams[targetNetwork].chainId }],
       });
     } catch (switchError: any) {
-      // This error code indicates that the chain has not been added to MetaMask.
       if (switchError.code === 4902) {
         try {
           await window.ethereum.request({
@@ -262,13 +266,13 @@ const Bridge: React.FC = () => {
     onClose();
     setLoading(true);
     try {
-      const targetNetwork =
-        fromToken === "RUPX" ? "rupaya-testnet" : "bsc-testnet";
-      await switchNetwork(targetNetwork);
+      const targetNetwork = fromToken === "RUPX" ? "rupaya-testnet" : "bsc-testnet";
 
-      const provider = new ethers.providers.Web3Provider(
-        window.ethereum as any
-      );
+      if (networkName !== targetNetwork) {
+        await switchNetwork(targetNetwork);
+      }
+
+      const provider = new ethers.providers.Web3Provider(window.ethereum as any);
       const signer = provider.getSigner();
       const amountWei = ethers.utils.parseEther(amount);
 
@@ -291,14 +295,14 @@ const Bridge: React.FC = () => {
           amountWei
         );
       }
-      await tx.wait();
+      const receipt = await tx.wait();
 
       setTransactions((prev) => [
         {
           from: fromToken,
           to: toToken,
           amount,
-          hash: tx.hash,
+          hash: receipt.transactionHash,
           timestamp: new Date().toLocaleString(),
         },
         ...prev.slice(0, 4),
@@ -374,6 +378,7 @@ const Bridge: React.FC = () => {
                   onChange={(e) => setFromToken(e.target.value)}
                   bg={bgColor}
                   color={textColor}
+                  id="fromToken"
                 >
                   <option value="RUPX">RUPX</option>
                   <option value="BRUPX">BRUPX</option>
@@ -397,6 +402,7 @@ const Bridge: React.FC = () => {
                   onChange={(e) => setToToken(e.target.value)}
                   bg={bgColor}
                   color={textColor}
+                  id="toToken"
                 >
                   <option value="BRUPX">BRUPX</option>
                   <option value="RUPX">RUPX</option>
@@ -410,6 +416,7 @@ const Bridge: React.FC = () => {
               type="number"
               bg={bgColor}
               color={textColor}
+              id="amount"
             />
             <Button
               onClick={onOpen}
